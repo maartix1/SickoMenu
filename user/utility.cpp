@@ -2587,15 +2587,28 @@ void ReloadCurrentSceneIfNeeded() {
 // only a lobby fallback, where the map's ShipStatus may not have been instantiated yet.
 static std::vector<app::TaskTypes__Enum> GetRuntimeTaskTypes(app::NormalPlayerTask__Array* taskArray) {
     std::vector<app::TaskTypes__Enum> taskTypes;
-    if (taskArray == nullptr) return taskTypes;
+    if (taskArray == nullptr || taskArray->klass == nullptr) return taskTypes;
 
-    const size_t reportedTaskCount = taskArray->bounds != nullptr
-        ? static_cast<size_t>(taskArray->bounds->length)
-        : static_cast<size_t>(taskArray->max_length);
     // IL2CPP declares vector as a fixed-size trailing member in generated headers;
-    // its sizeof does not describe the actual allocation length.
+    // its sizeof does not describe the actual allocation length. Check both length
+    // fields and reject inconsistent or unexpectedly large arrays before indexing.
     constexpr size_t MaxRuntimeTaskPrefabCount = 1024;
-    const size_t taskCount = (std::min)(reportedTaskCount, MaxRuntimeTaskPrefabCount);
+    const size_t maxLength = static_cast<size_t>(taskArray->max_length);
+    if (maxLength == 0 || maxLength > MaxRuntimeTaskPrefabCount)
+        return taskTypes;
+
+    size_t taskCount = maxLength;
+    if (taskArray->bounds != nullptr) {
+        const size_t boundsLength = static_cast<size_t>(taskArray->bounds->length);
+        if (taskArray->bounds->lower_bound != 0 ||
+            boundsLength == 0 ||
+            boundsLength > maxLength ||
+            boundsLength > MaxRuntimeTaskPrefabCount) {
+            return taskTypes;
+        }
+
+        taskCount = (std::min)(taskCount, boundsLength);
+    }
 
     taskTypes.reserve(taskCount);
     for (size_t i = 0; i < taskCount; ++i) {
@@ -2613,8 +2626,10 @@ static std::vector<app::TaskTypes__Enum> GetRuntimeTaskTypes(app::NormalPlayerTa
 
 std::vector<app::TaskTypes__Enum> GetMapCommonTasks() {
     auto* shipStatus = Game::pShipStatus != nullptr ? *Game::pShipStatus : nullptr;
-    if (shipStatus != nullptr && shipStatus->fields.CommonTasks != nullptr)
-        return GetRuntimeTaskTypes(shipStatus->fields.CommonTasks);
+    if (shipStatus != nullptr && shipStatus->fields.CommonTasks != nullptr) {
+        auto runtimeTasks = GetRuntimeTaskTypes(shipStatus->fields.CommonTasks);
+        if (!runtimeTasks.empty()) return runtimeTasks;
+    }
 
     static const std::vector<app::TaskTypes__Enum> skeldTasks = {
         TaskTypes__Enum::SwipeCard, TaskTypes__Enum::FixWiring
@@ -2648,8 +2663,10 @@ std::vector<app::TaskTypes__Enum> GetMapCommonTasks() {
 
 std::vector<app::TaskTypes__Enum> GetMapShortTasks() {
     auto* shipStatus = Game::pShipStatus != nullptr ? *Game::pShipStatus : nullptr;
-    if (shipStatus != nullptr && shipStatus->fields.ShortTasks != nullptr)
-        return GetRuntimeTaskTypes(shipStatus->fields.ShortTasks);
+    if (shipStatus != nullptr && shipStatus->fields.ShortTasks != nullptr) {
+        auto runtimeTasks = GetRuntimeTaskTypes(shipStatus->fields.ShortTasks);
+        if (!runtimeTasks.empty()) return runtimeTasks;
+    }
 
     static const std::vector<app::TaskTypes__Enum> skeldTasks = {
         TaskTypes__Enum::PrimeShields, TaskTypes__Enum::ChartCourse, TaskTypes__Enum::UploadData,
@@ -2698,8 +2715,10 @@ std::vector<app::TaskTypes__Enum> GetMapShortTasks() {
 
 std::vector<app::TaskTypes__Enum> GetMapLongTasks() {
     auto* shipStatus = Game::pShipStatus != nullptr ? *Game::pShipStatus : nullptr;
-    if (shipStatus != nullptr && shipStatus->fields.LongTasks != nullptr)
-        return GetRuntimeTaskTypes(shipStatus->fields.LongTasks);
+    if (shipStatus != nullptr && shipStatus->fields.LongTasks != nullptr) {
+        auto runtimeTasks = GetRuntimeTaskTypes(shipStatus->fields.LongTasks);
+        if (!runtimeTasks.empty()) return runtimeTasks;
+    }
 
     static const std::vector<app::TaskTypes__Enum> skeldTasks = {
         TaskTypes__Enum::SubmitScan, TaskTypes__Enum::FuelEngines, TaskTypes__Enum::StartReactor,

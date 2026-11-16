@@ -9,13 +9,14 @@ using byte = uint8_t;
 class RenderCmdQueue
 {
 public:
-    using RenderCmdFunc = void(*)(void*);
+    using RenderCmdExecuteFunc = void(*)(void*);
+    using RenderCmdDestroyFunc = void(*)(void*) noexcept;
 
     RenderCmdQueue();
     ~RenderCmdQueue();
 
     void* Allocate(uint32_t size, size_t alignment);
-    bool Enqueue(RenderCmdFunc execute, RenderCmdFunc destroy, void* storage);
+    bool Enqueue(RenderCmdExecuteFunc execute, RenderCmdDestroyFunc destroy, void* storage);
     bool RollbackAllocation(void* storage);
 
     void Execute();
@@ -23,8 +24,8 @@ public:
 private:
     struct Command
     {
-        RenderCmdFunc execute;
-        RenderCmdFunc destroy;
+        RenderCmdExecuteFunc execute;
+        RenderCmdDestroyFunc destroy;
         void* storage;
     };
 

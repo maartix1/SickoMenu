@@ -36,6 +36,10 @@ RenderCmdQueue::~RenderCmdQueue()
 
 void* RenderCmdQueue::Allocate(uint32_t size, size_t alignment)
 {
+    // Submit uses one reservation at a time; refuse overlapping uncommitted allocations.
+    if (m_LastAllocationStorage != nullptr)
+        return nullptr;
+
     if (alignment == 0 ||
         alignment > alignof(std::max_align_t) ||
         (alignment & (alignment - 1)) != 0)
@@ -59,24 +63,27 @@ void* RenderCmdQueue::Allocate(uint32_t size, size_t alignment)
     return m_LastAllocationStorage;
 }
 
-bool RenderCmdQueue::Enqueue(RenderCmdFunc execute, RenderCmdFunc destroy, void* storage)
+bool RenderCmdQueue::Enqueue(RenderCmdExecuteFunc execute, RenderCmdDestroyFunc destroy, void* storage)
 {
-    if (execute == nullptr || destroy == nullptr || storage == nullptr)
+    if (execute == nullptr || destroy == nullptr ||
+        storage == nullptr || storage != m_LastAllocationStorage)
+    {
+        RollbackAllocation(storage);
         return false;
+    }
 
     try
     {
         m_Commands.push_back({ execute, destroy, storage });
-        if (m_LastAllocationStorage == storage)
-        {
-            m_LastAllocationStorage = nullptr;
-            m_LastAllocationPreviousOffset = 0;
-            m_LastAllocationEnd = 0;
-        }
+        m_LastAllocationStorage = nullptr;
+        m_LastAllocationPreviousOffset = 0;
+        m_LastAllocationEnd = 0;
         return true;
     }
     catch (...)
     {
+        // Roll back the reservation whenever the command cannot be recorded.
+        RollbackAllocation(storage);
         return false;
     }
 }

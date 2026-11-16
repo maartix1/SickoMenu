@@ -24,6 +24,30 @@ namespace PlayersTab {
         return PlayerSelection(validated);
     }
 
+    static std::vector<PlayerSelection> ValidatePlayerSelections()
+    {
+        State.selectedPlayer = ValidatePlayerSelection(State.selectedPlayer);
+
+        std::vector<PlayerSelection> validatedSelections;
+        std::vector<uint8_t> validatedPlayerIds;
+        validatedSelections.reserve(State.selectedPlayers.size());
+        validatedPlayerIds.reserve(State.selectedPlayers.size());
+
+        for (const auto playerId : State.selectedPlayers) {
+            auto* playerControl = GetPlayerControlById(playerId);
+            if (playerControl == nullptr) continue;
+
+            auto selection = ValidatePlayerSelection(PlayerSelection(playerControl));
+            if (!selection.has_value()) continue;
+
+            validatedPlayerIds.push_back(selection.get_PlayerId());
+            validatedSelections.push_back(selection);
+        }
+
+        State.selectedPlayers.swap(validatedPlayerIds);
+        return validatedSelections;
+    }
+
     enum Groups {
         Player,
         Trolling,
@@ -220,6 +244,7 @@ namespace PlayersTab {
                 playersToShift = newPlayersToShift;
             }
 
+            auto selectedPlayers = ValidatePlayerSelections();
             auto selectedPlayer = State.selectedPlayer.validate();
             bool shouldEndListBox = ImGui::ListBoxHeader("###players#list", ImVec2(200, 230) * State.dpiScale);
             auto localData = GetPlayerData(*Game::pLocalPlayer);
@@ -519,19 +544,8 @@ namespace PlayersTab {
             if (shouldEndListBox)
                 ImGui::ListBoxFooter();
 
-            std::vector<PlayerSelection> selectedPlayers = {};
-            std::vector<uint8_t> validSelectedIds;
-            for (auto id : State.selectedPlayers) {
-                auto playerCtrl = GetPlayerControlById(id);
-                if (!playerCtrl) continue;
-
-                auto validPlayer = ValidatePlayerSelection(PlayerSelection(playerCtrl));
-                if (!validPlayer.has_value()) continue;
-
-                validSelectedIds.push_back(validPlayer.get_PlayerId());
-                selectedPlayers.push_back(validPlayer);
-            }
-            State.selectedPlayers.swap(validSelectedIds);
+            selectedPlayers = ValidatePlayerSelections();
+            selectedPlayer = State.selectedPlayer.validate();
 
             /*if () {
                 ImGui::NewLine();

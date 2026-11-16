@@ -16,8 +16,16 @@ public:
 		auto renderCmd = [](void* ptr) {
 			(*static_cast<Function*>(ptr))();
 		};
-		auto destroyCmd = [](void* ptr) {
-			static_cast<Function*>(ptr)->~Function();
+		auto destroyCmd = [](void* ptr) noexcept {
+			try
+			{
+				static_cast<Function*>(ptr)->~Function();
+			}
+			catch (...)
+			{
+				// Cleanup must not unwind through the render worker.
+			}
+		};
 		};
 
 		auto& commandQueue = GetCmdQueue();
@@ -36,9 +44,7 @@ public:
 		}
 
 		if (!commandQueue.Enqueue(renderCmd, destroyCmd, storageBuffer))
-		{
 			destroyCmd(storageBuffer);
-			commandQueue.RollbackAllocation(storageBuffer);
 		}
 	}
 

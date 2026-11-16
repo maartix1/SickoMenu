@@ -253,53 +253,83 @@ void dShipStatus_UpdateSystem(ShipStatus* __this, SystemTypes__Enum systemType, 
 
 void dShipStatus_AddTasksFromList(ShipStatus* __this, int32_t* start, int32_t count, void* tasks, void* usedTaskTypes, List_1_NormalPlayerTask_* unusedTasks, MethodInfo* method) {
     if (unusedTasks != nullptr && count > 0 && !State.DisabledTaskTypes.empty()) {
-        // Keep enough valid prefabs for the number of tasks the game is about to assign.
-        // If the enabled pool is too small, retain only the minimum number of disabled
-        // prefabs needed for this call. This does not mutate the user's global settings.
-        il2cpp::List<List_1_NormalPlayerTask_> taskList = unusedTasks;
-        const size_t originalSize = taskList.size();
-        size_t availableTaskCount = 0;
-        size_t enabledTaskCount = 0;
+        constexpr size_t MaxTaskPrefabCount = 1024;
+        auto* taskItems = unusedTasks->fields._items;
+        const int32_t reportedSize = unusedTasks->fields._size;
 
-        for (size_t i = 0; i < originalSize; ++i) {
-            auto* task = taskList[i];
-            if (task == nullptr) continue;
+        bool validList = unusedTasks->klass != nullptr &&
+            unusedTasks->klass->vtable.get_Count.methodPtr != nullptr &&
+            unusedTasks->klass->vtable.RemoveAt.methodPtr != nullptr &&
+            taskItems != nullptr &&
+            reportedSize > 0 &&
+            static_cast<size_t>(reportedSize) <= MaxTaskPrefabCount;
 
-            ++availableTaskCount;
-            const auto taskId = static_cast<int32_t>(task->fields._.TaskType);
-            if (State.DisabledTaskTypes.count(taskId) == 0) {
-                ++enabledTaskCount;
+        size_t backingCapacity = 0;
+        if (validList) {
+            backingCapacity = static_cast<size_t>(taskItems->max_length);
+            if (taskItems->bounds != nullptr) {
+                const size_t boundsLength = static_cast<size_t>(taskItems->bounds->length);
+                if (taskItems->bounds->lower_bound != 0 ||
+                    boundsLength > backingCapacity) {
+                    validList = false;
+                }
+                else {
+                    backingCapacity = (std::min)(backingCapacity, boundsLength);
+                }
             }
+
+            if (static_cast<size_t>(reportedSize) > backingCapacity)
+                validList = false;
         }
 
-        const size_t requiredTaskCount = (std::min)(
-            static_cast<size_t>(count), availableTaskCount);
-        size_t disabledFallbacksToKeep = requiredTaskCount > enabledTaskCount
-            ? requiredTaskCount - enabledTaskCount
-            : 0;
+        if (validList) {
+            // This is a non-owning view of the managed list. The original game method
+            // is called only after filtering completes, so this invocation is not
+            // iterating the list concurrently with the filtering loop.
+            il2cpp::List<List_1_NormalPlayerTask_> taskList = unusedTasks;
+            const size_t originalSize = static_cast<size_t>(reportedSize);
+            size_t enabledTaskCount = 0;
+            bool hasIncompleteEntries = false;
 
-        for (size_t i = originalSize; i > 0; --i) {
-            const size_t index = i - 1;
-            auto* task = taskList[index];
+            for (size_t i = 0; i < originalSize; ++i) {
+                auto* task = taskList[i];
+                if (task == nullptr) {
+                    hasIncompleteEntries = true;
+                    break;
+                }
 
-            if (task == nullptr) {
-                taskList.erase(index);
-                continue;
+                const auto taskId = static_cast<int32_t>(task->fields._.TaskType);
+                if (State.DisabledTaskTypes.count(taskId) == 0)
+                    ++enabledTaskCount;
             }
 
-            const auto taskId = static_cast<int32_t>(task->fields._.TaskType);
-            if (State.DisabledTaskTypes.count(taskId) == 0) continue;
+            // Pass incomplete pools through unchanged rather than deleting entries
+            // based on partial data.
+            if (!hasIncompleteEntries) {
+                const size_t requiredTaskCount = (std::min)(
+                    static_cast<size_t>(count), originalSize);
+                size_t disabledFallbacksToKeep = requiredTaskCount > enabledTaskCount
+                    ? requiredTaskCount - enabledTaskCount
+                    : 0;
 
-            if (disabledFallbacksToKeep > 0) {
-                --disabledFallbacksToKeep;
-                continue;
+                for (size_t i = originalSize; i > 0; --i) {
+                    const size_t index = i - 1;
+                    auto* task = taskList[index];
+                    const auto taskId = static_cast<int32_t>(task->fields._.TaskType);
+
+                    if (State.DisabledTaskTypes.count(taskId) == 0) continue;
+
+                    if (disabledFallbacksToKeep > 0) {
+                        --disabledFallbacksToKeep;
+                        continue;
+                    }
+
+                    taskList.erase(index);
+                }
             }
-
-            taskList.erase(index);
         }
-
-        unusedTasks = taskList.get();
     }
 
+    // taskList aliases unusedTasks; no pointer reassignment is needed after its in-place edits.
     ShipStatus_AddTasksFromList(__this, start, count, tasks, usedTaskTypes, unusedTasks, method);
 }
